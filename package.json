@@ -1,0 +1,59 @@
+{
+  "name": "stockai-backend",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "npx prisma generate",
+    "db:migrate": "npx prisma migrate dev",
+    "db:push": "npx prisma db push",
+    "db:studio": "npx prisma studio",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\"",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "stockai",
+    "finance",
+    "ai",
+    "analysis"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "StockAI Backend — Express API with AI-powered stock analysis",
+  "dependencies": {
+    "@prisma/client": "7.2.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "morgan": "^1.11.0",
+    "openai": "^6.45.0",
+    "prisma": "7.2.0",
+    "uuid": "^14.0.1",
+    "yahoo-finance2": "^3.15.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^26.0.1",
+    "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.62.0",
+    "@typescript-eslint/parser": "^8.62.0",
+    "eslint": "^10.5.0",
+    "globals": "^17.7.0",
+    "husky": "^9.1.7",
+    "nodemon": "^3.1.14",
+    "prettier": "^3.8.5",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

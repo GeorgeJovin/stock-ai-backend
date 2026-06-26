@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Analysis {
+  id        String   @id @default(uuid())
+  ticker    String   @unique
+  bullCase  String   @map("bull_case") @db.Text
+  bearCase  String   @map("bear_case") @db.Text
+  verdict   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ticker, updatedAt])
+  @@map("analyses")
+}
