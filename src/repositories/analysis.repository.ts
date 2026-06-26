@@ -6,9 +6,7 @@ let _prisma: PrismaClient | null = null;
 
 function getPrisma(): PrismaClient {
   if (!_prisma) {
-    _prisma = new PrismaClient({
-      accelerateUrl: process.env['DATABASE_URL']!,
-    });
+    _prisma = new PrismaClient();
   }
   return _prisma;
 }
