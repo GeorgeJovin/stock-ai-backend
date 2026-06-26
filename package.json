@@ -36,7 +36,6 @@
     "openai": "^6.45.0",
     "prisma": "^6.16.2",
     "uuid": "^14.0.1",
-    "yahoo-finance2": "^3.15.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,17 +1,57 @@
-import YahooFinance from 'yahoo-finance2';
-const yahooFinance = new YahooFinance();
+import { config } from '../config/index';
 import type { StockQuote, StockDetail } from '../types/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
+interface YahooChartResponse {
+  chart: {
+    result: Array<{
+      meta: {
+        symbol?: string;
+        currency?: string;
+        shortName?: string;
+        longName?: string;
+        regularMarketPrice?: number;
+        chartPreviousClose?: number;
+        fiftyTwoWeekHigh?: number;
+        fiftyTwoWeekLow?: number;
+        regularMarketVolume?: number;
+        averageDailyVolume3Month?: number;
+        marketCap?: number;
+        peRatio?: number | null;
+      };
+    }>;
+  };
+}
+
+async function fetchYahoo<T>(endpoint: string): Promise<T> {
+  const baseUrl = config.YAHOO_FINANCE_API_BASE_URL.replace(/\/+$/, '');
+  const url = `${baseUrl}${endpoint}`;
+
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Yahoo Finance API returned ${response.status}: ${response.statusText}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export const yahooFinanceService = {
   async search(query: string): Promise<string[]> {
     try {
-      const result = await yahooFinance.search(query, { region: 'IN', lang: 'en-IN' });
-      if (!result || !result.quotes) return [];
+      const url = `/v1/finance/search?q=${encodeURIComponent(query)}&region=IN&lang=en-IN`;
+      const data = await fetchYahoo<{ quotes?: Array<{ symbol?: string }> }>(url);
+      if (!data || !data.quotes) return [];
 
       const symbols: string[] = [];
-      for (const q of result.quotes) {
+      for (const q of data.quotes) {
         const symbol = q.symbol;
         if (typeof symbol === 'string' && symbol) {
           const upper = symbol.toUpperCase();
@@ -32,7 +72,17 @@ export const yahooFinanceService = {
 
   async getQuotes(tickers: string[]): Promise<StockQuote[]> {
     try {
-      const results = await Promise.allSettled(tickers.map((ticker) => yahooFinance.quote(ticker)));
+      const results = await Promise.allSettled(
+        tickers.map(async (ticker) => {
+          const url = `/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
+          const data = await fetchYahoo<YahooChartResponse>(url);
+          const meta = data?.chart?.result?.[0]?.meta;
+          if (!meta) {
+            throw new Error('Invalid chart response metadata');
+          }
+          return { ticker, meta };
+        }),
+      );
 
       const quotes: StockQuote[] = [];
 
@@ -41,15 +91,19 @@ export const yahooFinanceService = {
         const ticker = tickers[i]!;
 
         if (result.status === 'fulfilled' && result.value) {
-          const q = result.value as Record<string, unknown>;
+          const { meta } = result.value;
+          const regularPrice = meta.regularMarketPrice ?? 0;
+          const prevClose = meta.chartPreviousClose ?? regularPrice;
+          const change = regularPrice - prevClose;
+          const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+
           quotes.push({
             ticker,
-            name:
-              (q['shortName'] as string) ?? (q['longName'] as string) ?? ticker.replace('.NS', ''),
-            price: (q['regularMarketPrice'] as number) ?? 0,
-            change: (q['regularMarketChange'] as number) ?? 0,
-            changePercent: (q['regularMarketChangePercent'] as number) ?? 0,
-            currency: (q['currency'] as string) ?? 'INR',
+            name: meta.shortName ?? meta.longName ?? ticker.replace('.NS', ''),
+            price: regularPrice,
+            change,
+            changePercent,
+            currency: meta.currency ?? 'INR',
           });
         } else {
           logger.warn(`Failed to fetch quote for ${ticker}`, {
@@ -67,40 +121,32 @@ export const yahooFinanceService = {
 
   async getStockDetail(ticker: string): Promise<StockDetail> {
     try {
-      const quote = await yahooFinance.quote(ticker);
-      let summary: Record<string, unknown> | null = null;
+      const url = `/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
+      const data = await fetchYahoo<YahooChartResponse>(url);
+      const meta = data?.chart?.result?.[0]?.meta;
 
-      try {
-        const summaryResult = await yahooFinance.quoteSummary(ticker, {
-          modules: ['summaryDetail', 'defaultKeyStatistics'],
-        });
-        summary = summaryResult as unknown as Record<string, unknown>;
-      } catch {
-        logger.warn('quoteSummary failed, using quote data only', { ticker });
-      }
-
-      if (!quote) {
+      if (!meta) {
         throw new AppError(`Stock ${ticker} not found`, 404);
       }
 
-      const q = quote as Record<string, unknown>;
-      const summaryDetail = (summary?.['summaryDetail'] ?? {}) as Record<string, unknown>;
+      const regularPrice = meta.regularMarketPrice ?? 0;
+      const prevClose = meta.chartPreviousClose ?? regularPrice;
+      const change = regularPrice - prevClose;
+      const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
       return {
         ticker,
-        name: (q['shortName'] as string) ?? (q['longName'] as string) ?? ticker.replace('.NS', ''),
-        price: (q['regularMarketPrice'] as number) ?? 0,
-        change: (q['regularMarketChange'] as number) ?? 0,
-        changePercent: (q['regularMarketChangePercent'] as number) ?? 0,
-        currency: (q['currency'] as string) ?? 'INR',
-        marketCap: (q['marketCap'] as number) ?? 0,
-        peRatio: (summaryDetail['trailingPE'] as number) ?? (q['trailingPE'] as number) ?? null,
-        fiftyTwoWeekHigh:
-          (q['fiftyTwoWeekHigh'] as number) ?? (summaryDetail['fiftyTwoWeekHigh'] as number) ?? 0,
-        fiftyTwoWeekLow:
-          (q['fiftyTwoWeekLow'] as number) ?? (summaryDetail['fiftyTwoWeekLow'] as number) ?? 0,
-        volume: (q['regularMarketVolume'] as number) ?? 0,
-        avgVolume: (q['averageDailyVolume3Month'] as number) ?? 0,
+        name: meta.shortName ?? meta.longName ?? ticker.replace('.NS', ''),
+        price: regularPrice,
+        change,
+        changePercent,
+        currency: meta.currency ?? 'INR',
+        marketCap: meta.marketCap ?? 0,
+        peRatio: meta.peRatio ?? null,
+        fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ?? regularPrice,
+        fiftyTwoWeekLow: meta.fiftyTwoWeekLow ?? regularPrice,
+        volume: meta.regularMarketVolume ?? 0,
+        avgVolume: meta.averageDailyVolume3Month ?? meta.regularMarketVolume ?? 0,
       };
     } catch (error) {
       if (error instanceof AppError) throw error;
