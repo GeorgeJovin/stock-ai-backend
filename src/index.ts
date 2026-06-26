@@ -5,9 +5,7 @@ import { logger } from './utils/logger';
 import { PrismaClient } from '@prisma/client';
 import { initializeRepository } from './repositories/analysis.repository';
 
-export const prisma = new PrismaClient({
-  accelerateUrl: process.env['DATABASE_URL']!,
-});
+export const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   await prisma.$connect();
