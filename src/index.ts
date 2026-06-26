@@ -2,7 +2,7 @@ import { config } from './config/index';
 import { createApp } from './app';
 import { logger } from './utils/logger';
 
-import { PrismaClient } from '../generated/prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { initializeRepository } from './repositories/analysis.repository';
 
 export const prisma = new PrismaClient({
