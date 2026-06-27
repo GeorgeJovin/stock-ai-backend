@@ -6,11 +6,23 @@ import { config } from './config/index';
 import { generalLimiter } from './middleware/rate-limiter';
 import { errorHandler } from './middleware/error-handler';
 import { createApiRouter } from './routes/index';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerDocument } from './config/swagger';
 
 export function createApp(): express.Express {
   const app = express();
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'script-src': ["'self'", "'unsafe-inline'"],
+          'style-src': ["'self'", "'unsafe-inline'"],
+        },
+      },
+    }),
+  );
   app.use(
     cors({
       origin: config.CORS_ORIGIN === '*' ? '*' : config.CORS_ORIGIN.split(','),
@@ -31,6 +43,8 @@ export function createApp(): express.Express {
       uptime: process.uptime(),
     });
   });
+
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
   app.use('/api', createApiRouter());
 
