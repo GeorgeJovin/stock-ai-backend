@@ -164,7 +164,7 @@ export const swaggerDocument = {
               'Cache-Control': {
                 schema: { type: 'string', example: 'no-cache' },
               },
-              'Connection': {
+              Connection: {
                 schema: { type: 'string', example: 'keep-alive' },
               },
             },

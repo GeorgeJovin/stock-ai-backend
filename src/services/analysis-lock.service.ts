@@ -73,7 +73,7 @@ class AnalysisLockService {
       onComplete: (result: AnalysisResult) => void;
       onError: (error: Error) => void;
     },
-  ): void {
+  ): () => void {
     for (const token of entry.tokens) {
       callbacks.onToken(token);
     }
@@ -81,6 +81,13 @@ class AnalysisLockService {
     entry.subscribers.push(callbacks.onToken);
     entry.onComplete.push(callbacks.onComplete);
     entry.onError.push(callbacks.onError);
+
+    return () => {
+      entry.subscribers = entry.subscribers.filter((cb) => cb !== callbacks.onToken);
+      entry.onComplete = entry.onComplete.filter((cb) => cb !== callbacks.onComplete);
+      entry.onError = entry.onError.filter((cb) => cb !== callbacks.onError);
+      logger.debug('Successfully unsubscribed callbacks from in-flight entry');
+    };
   }
 }
 

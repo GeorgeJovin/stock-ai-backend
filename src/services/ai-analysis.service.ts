@@ -88,7 +88,7 @@ export const aiAnalysisService = {
     onToken: (token: string) => void,
     onComplete: (result: AnalysisResponse) => void,
     onError: (error: Error) => void,
-  ): Promise<void> {
+  ): Promise<(() => void) | void> {
     const { ticker } = stock;
 
     const cached = await analysisRepository.findValidByTicker(ticker, config.ANALYSIS_CACHE_HOURS);
@@ -111,7 +111,7 @@ export const aiAnalysisService = {
     const inFlight = analysisLockService.getInFlight(ticker);
     if (inFlight) {
       logger.info('Subscribing to in-flight analysis', { ticker });
-      analysisLockService.subscribe(inFlight, {
+      return analysisLockService.subscribe(inFlight, {
         onToken,
         onComplete: async (result) => {
           const saved = await analysisRepository.findByTicker(ticker);
@@ -126,7 +126,6 @@ export const aiAnalysisService = {
         },
         onError,
       });
-      return;
     }
 
     logger.info('Generating new analysis', { ticker });

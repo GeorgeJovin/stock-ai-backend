@@ -39,8 +39,13 @@ export const stockController = {
       });
 
       let isClientConnected = true;
+      let unsubscribe: (() => void) | undefined;
+
       req.on('close', () => {
         isClientConnected = false;
+        if (unsubscribe) {
+          unsubscribe();
+        }
         logger.debug('Client disconnected from SSE', { ticker });
       });
 
@@ -49,7 +54,7 @@ export const stockController = {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
-      await aiAnalysisService.getOrGenerateAnalysis(
+      const unsub = await aiAnalysisService.getOrGenerateAnalysis(
         stock,
 
         (token: string) => {
@@ -70,6 +75,14 @@ export const stockController = {
           }
         },
       );
+
+      if (unsub) {
+        if (!isClientConnected) {
+          unsub();
+        } else {
+          unsubscribe = unsub;
+        }
+      }
     } catch (error) {
       if (!res.headersSent) {
         next(error);
