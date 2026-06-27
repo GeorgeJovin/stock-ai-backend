@@ -13,7 +13,6 @@ const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().default(100),
   AI_RATE_LIMIT_MAX: z.coerce.number().default(10),
   ANALYSIS_CACHE_HOURS: z.coerce.number().default(24),
-  YAHOO_FINANCE_API_BASE_URL: z.string().default('https://query1.finance.yahoo.com'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

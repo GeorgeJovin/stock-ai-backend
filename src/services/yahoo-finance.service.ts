@@ -1,82 +1,34 @@
-import { config } from '../config/index';
+import YahooFinance from 'yahoo-finance2';
 import type { StockQuote, StockDetail } from '../types/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { MemoryCache } from '../utils/cache';
 
-interface YahooChartResponse {
-  chart: {
-    result: Array<{
-      meta: {
-        symbol?: string;
-        currency?: string;
-        shortName?: string;
-        longName?: string;
-        regularMarketPrice?: number;
-        chartPreviousClose?: number;
-        fiftyTwoWeekHigh?: number;
-        fiftyTwoWeekLow?: number;
-        regularMarketVolume?: number;
-        averageDailyVolume3Month?: number;
-        marketCap?: number;
-        peRatio?: number | null;
-      };
-    }>;
-  };
-}
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const searchCache = new MemoryCache<string[]>();
 const quoteCache = new MemoryCache<StockQuote>();
 const detailCache = new MemoryCache<StockDetail>();
 
-async function fetchYahoo<T>(endpoint: string): Promise<T> {
-  const baseUrl = config.YAHOO_FINANCE_API_BASE_URL.replace(/\/+$/, '');
-  const url = `${baseUrl}${endpoint}`;
-
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Yahoo Finance API returned ${response.status}: ${response.statusText}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
 export const yahooFinanceService = {
   async search(query: string): Promise<string[]> {
     const cacheKey = query.trim().toLowerCase();
     const cached = searchCache.get(cacheKey);
-    if (cached) {
-      logger.debug('Cache hit for Yahoo search', { query });
-      return cached;
-    }
+    if (cached) return cached;
 
     try {
-      const url = `/v1/finance/search?q=${encodeURIComponent(query)}&region=IN&lang=en-IN`;
-      const data = await fetchYahoo<{ quotes?: Array<{ symbol?: string }> }>(url);
-      if (!data || !data.quotes) return [];
-
-      const symbols: string[] = [];
-      for (const q of data.quotes) {
-        const symbol = q.symbol;
-        if (typeof symbol === 'string' && symbol) {
+      const results = await yahooFinance.search(query);
+      const symbols = (results.quotes || [])
+        .map((q) => q.symbol)
+        .filter((symbol): symbol is string => typeof symbol === 'string' && !!symbol)
+        .map((symbol) => {
           const upper = symbol.toUpperCase();
-          if (upper.endsWith('.NS')) {
-            symbols.push(upper);
-          } else if (upper.endsWith('.BO')) {
-            symbols.push(upper.slice(0, -3) + '.NS');
-          }
-        }
-      }
+          return upper.endsWith('.BO') ? upper.slice(0, -3) + '.NS' : upper;
+        })
+        .filter((symbol) => symbol.endsWith('.NS'));
 
       const uniqueSymbols = Array.from(new Set(symbols));
-      searchCache.set(cacheKey, uniqueSymbols, 300_000); // Cache for 5 minutes
+      searchCache.set(cacheKey, uniqueSymbols, 300_000); // 5 mins cache
       return uniqueSymbols;
     } catch (error) {
       logger.error('Yahoo Finance search error', { query, error });
@@ -99,49 +51,29 @@ export const yahooFinanceService = {
       }
 
       if (missingTickers.length > 0) {
-        const results = await Promise.allSettled(
-          missingTickers.map(async (ticker) => {
-            const url = `/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
-            const data = await fetchYahoo<YahooChartResponse>(url);
-            const meta = data?.chart?.result?.[0]?.meta;
-            if (!meta) {
-              throw new Error('Invalid chart response metadata');
-            }
-            return { ticker, meta };
-          }),
-        );
+        try {
+          const results = await yahooFinance.quote(missingTickers);
+          const quotesArray = Array.isArray(results) ? results : [results];
 
-        for (let i = 0; i < results.length; i++) {
-          const result = results[i]!;
-          const ticker = missingTickers[i]!;
-
-          if (result.status === 'fulfilled' && result.value) {
-            const { meta } = result.value;
-            const regularPrice = meta.regularMarketPrice ?? 0;
-            const prevClose = meta.chartPreviousClose ?? regularPrice;
-            const change = regularPrice - prevClose;
-            const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-
+          for (const q of quotesArray) {
+            if (!q) continue;
             const quote: StockQuote = {
-              ticker,
-              name: meta.shortName ?? meta.longName ?? ticker.replace('.NS', ''),
-              price: regularPrice,
-              change,
-              changePercent,
-              currency: meta.currency ?? 'INR',
+              ticker: q.symbol,
+              name: q.shortName ?? q.longName ?? q.symbol.replace('.NS', ''),
+              price: q.regularMarketPrice ?? 0,
+              change: q.regularMarketChange ?? 0,
+              changePercent: q.regularMarketChangePercent ?? 0,
+              currency: q.currency ?? 'INR',
             };
-
-            quoteCache.set(ticker, quote, 60_000); // Cache for 1 minute
+            quoteCache.set(q.symbol, quote, 60_000);
             cachedQuotes.push(quote);
-          } else {
-            logger.warn(`Failed to fetch quote for ${ticker}`, {
-              error: result.status === 'rejected' ? result.reason : 'No data',
-            });
           }
+        } catch (err) {
+          logger.error('Failed to fetch quotes using yahoo-finance2 library', { error: err });
+          throw err;
         }
       }
 
-      // Return quotes in the order they were requested
       return tickers
         .map((ticker) => cachedQuotes.find((q) => q.ticker === ticker))
         .filter((q): q is StockQuote => !!q);
@@ -153,45 +85,32 @@ export const yahooFinanceService = {
 
   async getStockDetail(ticker: string): Promise<StockDetail> {
     const cached = detailCache.get(ticker);
-    if (cached) {
-      logger.debug('Cache hit for Yahoo stock detail', { ticker });
-      return cached;
-    }
+    if (cached) return cached;
 
     try {
-      const url = `/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
-      const data = await fetchYahoo<YahooChartResponse>(url);
-      const meta = data?.chart?.result?.[0]?.meta;
+      const q = await yahooFinance.quote(ticker);
+      if (!q) throw new Error('No quote returned in result');
 
-      if (!meta) {
-        throw new AppError(`Stock ${ticker} not found`, 404);
-      }
-
-      const regularPrice = meta.regularMarketPrice ?? 0;
-      const prevClose = meta.chartPreviousClose ?? regularPrice;
-      const change = regularPrice - prevClose;
-      const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-
+      const price = q.regularMarketPrice ?? 0;
       const detail: StockDetail = {
-        ticker,
-        name: meta.shortName ?? meta.longName ?? ticker.replace('.NS', ''),
-        price: regularPrice,
-        change,
-        changePercent,
-        currency: meta.currency ?? 'INR',
-        marketCap: meta.marketCap ?? 0,
-        peRatio: meta.peRatio ?? null,
-        fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ?? regularPrice,
-        fiftyTwoWeekLow: meta.fiftyTwoWeekLow ?? regularPrice,
-        volume: meta.regularMarketVolume ?? 0,
-        avgVolume: meta.averageDailyVolume3Month ?? meta.regularMarketVolume ?? 0,
+        ticker: q.symbol,
+        name: q.shortName ?? q.longName ?? q.symbol.replace('.NS', ''),
+        price,
+        change: q.regularMarketChange ?? 0,
+        changePercent: q.regularMarketChangePercent ?? 0,
+        currency: q.currency ?? 'INR',
+        marketCap: q.marketCap ?? 0,
+        peRatio: q.trailingPE ?? q.forwardPE ?? null,
+        fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? price,
+        fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? price,
+        volume: q.regularMarketVolume ?? 0,
+        avgVolume: q.averageDailyVolume3Month ?? q.regularMarketVolume ?? 0,
       };
 
-      detailCache.set(ticker, detail, 60_000); // Cache for 1 minute
+      detailCache.set(ticker, detail, 60_000);
       return detail;
     } catch (error) {
-      if (error instanceof AppError) throw error;
-      logger.error('Yahoo Finance detail error', { ticker, error });
+      logger.error('Yahoo Finance detail error in library', { ticker, error });
       throw new AppError(`Failed to fetch details for ${ticker}`, 502);
     }
   },

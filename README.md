@@ -32,9 +32,6 @@ Express API with Prisma database client and Yahoo Finance API integration for st
 
    # Cache Configuration
    ANALYSIS_CACHE_HOURS=24
-
-   # Yahoo Finance API
-   YAHOO_FINANCE_API_BASE_URL="https://query1.finance.yahoo.com"
    ```
 
 3. **Initialize Database**:
