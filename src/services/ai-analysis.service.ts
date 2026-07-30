@@ -65,7 +65,16 @@ async function generateAnalysis(
   }
 
   try {
-    const parsed = JSON.parse(fullContent) as {
+    // Strip reasoning / thinking tags (e.g. from DeepSeek-R1 or reasoning models)
+    let cleanedContent = fullContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    // Extract JSON object if wrapped in markdown code fences or surrounding text
+    const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanedContent = jsonMatch[0];
+    }
+
+    const parsed = JSON.parse(cleanedContent) as {
       bull_case?: string;
       bear_case?: string;
       verdict?: string;
